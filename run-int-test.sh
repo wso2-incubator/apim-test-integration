@@ -23,6 +23,8 @@ PRODUCT_REPOSITORY=$1
 PRODUCT_REPOSITORY_BRANCH=$2
 PRODUCT_NAME=$3
 PRODUCT_VERSION=$4
+GIT_USER=$5
+GIT_PASS=$6
 
 PRODUCT_REPOSITORY_NAME=$(echo $PRODUCT_REPOSITORY | rev | cut -d'/' -f1 | rev | cut -d'.' -f1)
 PRODUCT_REPOSITORY_PACK_DIR="$TESTGRID_DIR/$PRODUCT_REPOSITORY_NAME/modules/distribution/product/target"
@@ -82,13 +84,14 @@ function export_db_params(){
 source /etc/environment
 
 log_info "Clone Product repository"
-git clone https://$PRODUCT_REPOSITORY $TESTGRID_DIR/${PRODUCT_REPOSITORY_NAME} --branch $PRODUCT_REPOSITORY_BRANCH
+git clone https://${GIT_USER}:${GIT_PASS}@$PRODUCT_REPOSITORY --branch $PRODUCT_REPOSITORY_BRANCH --single-branch
 
 log_info "Exporting JDK"
 install_jdk ${JDK_TYPE}
-
+log_info "Sleep for 30 mins"
+sleep 15m
 db_file=$(jq -r '.jdbc[] | select ( .name == '\"${DB_TYPE}\"') | .file_name' ${INFRA_JSON})
-wget -q https://integration-testgrid-resources.s3.amazonaws.com/lib/jdbc/${db_file}.jar  -P $TESTGRID_DIR/${PRODUCT_NAME}-${PRODUCT_VERSION}-*/repository/components/lib
+wget -q https://integration-testgrid-resources.s3.amazonaws.com/lib/jdbc/${db_file}.jar  -P $TESTGRID_DIR/${PRODUCT_PACK_NAME}/repository/components/lib
 
 sed -i "s|DB_HOST|${CF_DB_HOST}|g" ${INFRA_JSON}
 sed -i "s|DB_USERNAME|${CF_DB_USERNAME}|g" ${INFRA_JSON}
@@ -98,9 +101,10 @@ sed -i "s|DB_NAME|${DB_NAME}|g" ${INFRA_JSON}
 export_db_params ${DB_TYPE}
 
 mkdir -p $PRODUCT_REPOSITORY_PACK_DIR
-
 log_info "Copying product pack to Repository"
-[ -f $TESTGRID_DIR/$PRODUCT_NAME-$PRODUCT_VERSION-*.zip ] && rm -f $TESTGRID_DIR/$PRODUCT_NAME-$PRODUCT_VERSION-*.zip
+[ -f $TESTGRID_DIR/$PRODUCT_NAME-$PRODUCT_VERSION*.zip ] && rm -f $TESTGRID_DIR/$PRODUCT_NAME-$PRODUCT_VERSION*.zip
 cd $TESTGRID_DIR && zip -qr $PRODUCT_PACK_NAME.zip $PRODUCT_PACK_NAME
 mv $TESTGRID_DIR/$PRODUCT_PACK_NAME.zip $PRODUCT_REPOSITORY_PACK_DIR/.
-cd $INT_TEST_MODULE_DIR  && mvn clean install -fae -B -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn
+log_info "install pack into local maven Repository"
+mvn install:install-file -Dfile=$PRODUCT_REPOSITORY_PACK_DIR/$PRODUCT_PACK_NAME.zip -DgroupId=org.wso2.am -DartifactId=wso2am -Dversion=$PRODUCT_VERSION -Dpackaging=zip --file=$PRODUCT_REPOSITORY_PACK_DIR/../pom.xml 
+cd $INT_TEST_MODULE_DIR  && mvn clean install -fae -B -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn -Ptestgrid
